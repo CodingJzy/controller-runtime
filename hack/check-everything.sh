@@ -19,7 +19,7 @@ set -e
 hack_dir=$(dirname ${BASH_SOURCE})
 source ${hack_dir}/common.sh
 
-k8s_version=1.13.1
+k8s_version=1.16.4
 goarch=amd64
 goos="unknown"
 
@@ -48,11 +48,9 @@ SKIP_FETCH_TOOLS=${SKIP_FETCH_TOOLS:-""}
 
 # fetch k8s API gen tools and make it available under kb_root_dir/bin.
 function fetch_kb_tools {
-  if [ -n "$SKIP_FETCH_TOOLS" ]; then
-    return 0
-  fi
+  local dest_dir="${1}"
 
-  header_text "fetching tools"
+  header_text "fetching tools (into '${dest_dir}')"
   kb_tools_archive_name="kubebuilder-tools-$k8s_version-$goos-$goarch.tar.gz"
   kb_tools_download_url="https://storage.googleapis.com/kubebuilder-tools/$kb_tools_archive_name"
 
@@ -60,22 +58,42 @@ function fetch_kb_tools {
   if [ ! -f $kb_tools_archive_path ]; then
     curl -sL ${kb_tools_download_url} -o "$kb_tools_archive_path"
   fi
-  tar -zvxf "$kb_tools_archive_path" -C "$tmp_root/"
+
+  mkdir -p "${dest_dir}"
+  tar -C "${dest_dir}" --strip-components=1 -zvxf "$kb_tools_archive_path"
+}
+
+function is_installed {
+  if command -v "$1" &>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+function fetch_go_tools {
+  header_text "Checking for gometalinter.v2"
+  if ! is_installed golangci-lint; then
+    header_text "Installing golangci-lint"
+    curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.21.0
+  fi
 }
 
 header_text "using tools"
 
-which gometalinter.v2
-which dep
-fetch_kb_tools
+if [ -z "$SKIP_FETCH_TOOLS" ]; then
+  fetch_go_tools
+  fetch_kb_tools "$kb_root_dir"
+  fetch_kb_tools "${hack_dir}/../pkg/internal/testing/integration/assets"
+fi
+
 setup_envs
 
 ${hack_dir}/verify.sh
 ${hack_dir}/test-all.sh
 
 header_text "confirming examples compile (via go install)"
-go install ./examples/builtins
-go install ./examples/crd
+go install ${MOD_OPT} ./examples/builtins
+go install ${MOD_OPT} ./examples/crd
 
 echo "passed"
 exit 0

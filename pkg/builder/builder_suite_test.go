@@ -28,11 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/internal/testing/integration/addr"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	"sigs.k8s.io/testing_frameworks/integration/addr"
 )
 
 func TestBuilder(t *testing.T) {
@@ -66,7 +66,7 @@ var _ = BeforeSuite(func(done Done) {
 }, 60)
 
 var _ = AfterSuite(func() {
-	testenv.Stop()
+	Expect(testenv.Stop()).To(Succeed())
 
 	// Put the DefaultBindAddress back
 	metrics.DefaultBindAddress = ":8080"
@@ -77,10 +77,10 @@ var _ = AfterSuite(func() {
 
 func addCRDToEnvironment(env *envtest.Environment, gvks ...schema.GroupVersionKind) {
 	for _, gvk := range gvks {
-		plural, singlar := meta.UnsafeGuessKindToResource(gvk)
+		plural, singular := meta.UnsafeGuessKindToResource(gvk)
 		crd := &apiextensionsv1beta1.CustomResourceDefinition{
 			TypeMeta: metav1.TypeMeta{
-				APIVersion: "apiextensions.k8s.io",
+				APIVersion: "apiextensions.k8s.io/v1beta1",
 				Kind:       "CustomResourceDefinition",
 			},
 			ObjectMeta: metav1.ObjectMeta{
@@ -91,7 +91,7 @@ func addCRDToEnvironment(env *envtest.Environment, gvks ...schema.GroupVersionKi
 				Version: gvk.Version,
 				Names: apiextensionsv1beta1.CustomResourceDefinitionNames{
 					Plural:   plural.Resource,
-					Singular: singlar.Resource,
+					Singular: singular.Resource,
 					Kind:     gvk.Kind,
 				},
 				Versions: []apiextensionsv1beta1.CustomResourceDefinitionVersion{
@@ -103,6 +103,6 @@ func addCRDToEnvironment(env *envtest.Environment, gvks ...schema.GroupVersionKi
 				},
 			},
 		}
-		env.CRDs = append(env.CRDs, crd)
+		env.CRDInstallOptions.CRDs = append(env.CRDInstallOptions.CRDs, crd)
 	}
 }

@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -39,12 +40,20 @@ var _ = Describe("Fake client", func() {
 
 	BeforeEach(func() {
 		dep = &appsv1.Deployment{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-deployment",
 				Namespace: "ns1",
 			},
 		}
 		dep2 = &appsv1.Deployment{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-deployment-2",
 				Namespace: "ns1",
@@ -54,6 +63,10 @@ var _ = Describe("Fake client", func() {
 			},
 		}
 		cm = &corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-cm",
 				Namespace: "ns2",
@@ -77,6 +90,19 @@ var _ = Describe("Fake client", func() {
 			Expect(obj).To(Equal(dep))
 		})
 
+		It("should be able to Get using unstructured", func() {
+			By("Getting a deployment")
+			namespacedName := types.NamespacedName{
+				Name:      "test-deployment",
+				Namespace: "ns1",
+			}
+			obj := &unstructured.Unstructured{}
+			obj.SetAPIVersion("apps/v1")
+			obj.SetKind("Deployment")
+			err := cl.Get(nil, namespacedName, obj)
+			Expect(err).To(BeNil())
+		})
+
 		It("should be able to List", func() {
 			By("Listing all deployments in a namespace")
 			list := &appsv1.DeploymentList{}
@@ -84,6 +110,16 @@ var _ = Describe("Fake client", func() {
 			Expect(err).To(BeNil())
 			Expect(list.Items).To(HaveLen(2))
 			Expect(list.Items).To(ConsistOf(*dep, *dep2))
+		})
+
+		It("should be able to List using unstructured list", func() {
+			By("Listing all deployments in a namespace")
+			list := &unstructured.UnstructuredList{}
+			list.SetAPIVersion("apps/v1")
+			list.SetKind("DeploymentList")
+			err := cl.List(nil, list, client.InNamespace("ns1"))
+			Expect(err).To(BeNil())
+			Expect(list.Items).To(HaveLen(2))
 		})
 
 		It("should support filtering by labels", func() {
@@ -101,6 +137,10 @@ var _ = Describe("Fake client", func() {
 		It("should be able to Create", func() {
 			By("Creating a new configmap")
 			newcm := &corev1.ConfigMap{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "ConfigMap",
+				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "new-test-cm",
 					Namespace: "ns2",
@@ -118,14 +158,20 @@ var _ = Describe("Fake client", func() {
 			err = cl.Get(nil, namespacedName, obj)
 			Expect(err).To(BeNil())
 			Expect(obj).To(Equal(newcm))
+			Expect(obj.ObjectMeta.ResourceVersion).To(Equal("1"))
 		})
 
 		It("should be able to Update", func() {
 			By("Updating a new configmap")
 			newcm := &corev1.ConfigMap{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "ConfigMap",
+				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cm",
-					Namespace: "ns2",
+					Name:            "test-cm",
+					Namespace:       "ns2",
+					ResourceVersion: "1",
 				},
 				Data: map[string]string{
 					"test-key": "new-value",
@@ -143,6 +189,7 @@ var _ = Describe("Fake client", func() {
 			err = cl.Get(nil, namespacedName, obj)
 			Expect(err).To(BeNil())
 			Expect(obj).To(Equal(newcm))
+			Expect(obj.ObjectMeta.ResourceVersion).To(Equal("2"))
 		})
 
 		It("should be able to Delete", func() {
@@ -158,6 +205,18 @@ var _ = Describe("Fake client", func() {
 			Expect(list.Items).To(ConsistOf(*dep2))
 		})
 
+		It("should be able to Delete a Collection", func() {
+			By("Deleting a deploymentList")
+			err := cl.DeleteAllOf(nil, &appsv1.Deployment{}, client.InNamespace("ns1"))
+			Expect(err).To(BeNil())
+
+			By("Listing all deployments in the namespace")
+			list := &appsv1.DeploymentList{}
+			err = cl.List(nil, list, client.InNamespace("ns1"))
+			Expect(err).To(BeNil())
+			Expect(list.Items).To(BeEmpty())
+		})
+
 		Context("with the DryRun option", func() {
 			It("should not create a new object", func() {
 				By("Creating a new configmap with DryRun")
@@ -167,7 +226,7 @@ var _ = Describe("Fake client", func() {
 						Namespace: "ns2",
 					},
 				}
-				err := cl.Create(nil, newcm, client.CreateDryRunAll())
+				err := cl.Create(nil, newcm, client.CreateDryRunAll)
 				Expect(err).To(BeNil())
 
 				By("Getting the new configmap")
@@ -186,14 +245,15 @@ var _ = Describe("Fake client", func() {
 				By("Updating a new configmap with DryRun")
 				newcm := &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-cm",
-						Namespace: "ns2",
+						Name:            "test-cm",
+						Namespace:       "ns2",
+						ResourceVersion: "1",
 					},
 					Data: map[string]string{
 						"test-key": "new-value",
 					},
 				}
-				err := cl.Update(nil, newcm, client.UpdateDryRunAll())
+				err := cl.Update(nil, newcm, client.UpdateDryRunAll)
 				Expect(err).To(BeNil())
 
 				By("Getting the new configmap")
@@ -205,6 +265,7 @@ var _ = Describe("Fake client", func() {
 				err = cl.Get(nil, namespacedName, obj)
 				Expect(err).To(BeNil())
 				Expect(obj).To(Equal(cm))
+				Expect(obj.ObjectMeta.ResourceVersion).To(Equal(""))
 			})
 		})
 
@@ -218,7 +279,7 @@ var _ = Describe("Fake client", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			err = cl.Patch(nil, dep, client.ConstantPatch(types.StrategicMergePatchType, mergePatch))
+			err = cl.Patch(nil, dep, client.RawPatch(types.StrategicMergePatchType, mergePatch))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Getting the patched deployment")
@@ -230,6 +291,7 @@ var _ = Describe("Fake client", func() {
 			err = cl.Get(nil, namespacedName, obj)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(obj.Annotations["foo"]).To(Equal("bar"))
+			Expect(obj.ObjectMeta.ResourceVersion).To(Equal("1"))
 		})
 	}
 
@@ -244,8 +306,8 @@ var _ = Describe("Fake client", func() {
 	Context("with given scheme", func() {
 		BeforeEach(func(done Done) {
 			scheme := runtime.NewScheme()
-			corev1.AddToScheme(scheme)
-			appsv1.AddToScheme(scheme)
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			Expect(appsv1.AddToScheme(scheme)).To(Succeed())
 			cl = NewFakeClientWithScheme(scheme, dep, dep2, cm)
 			close(done)
 		})

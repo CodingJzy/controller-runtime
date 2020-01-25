@@ -6,3 +6,13 @@ aliases:
   - droot
   - pwittrock
   controller-runtime-maintainers: []
+  controller-runtime-reviewers:
+  - alvaroaleman
+  - shawn-hurley
+  - gerred
+  - joelanford
+  - alenkacz
+  testing-integration-admins:
+  - apelisse
+  - hoegaarden
+  - totherme

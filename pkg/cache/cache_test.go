@@ -75,7 +75,7 @@ func deletePod(pod runtime.Object) {
 var _ = Describe("Informer Cache", func() {
 	CacheTest(cache.New)
 })
-var _ = Describe("Multi-Namesapce Informer Cache", func() {
+var _ = Describe("Multi-Namespace Informer Cache", func() {
 	CacheTest(cache.MultiNamespacedCacheBuilder([]string{testNamespaceOne, testNamespaceTwo, "default"}))
 })
 
@@ -115,10 +115,11 @@ func CacheTest(createCacheFunc func(config *rest.Config, opts cache.Options) (ca
 			informerCache, err = createCacheFunc(cfg, cache.Options{})
 			Expect(err).NotTo(HaveOccurred())
 			By("running the cache and waiting for it to sync")
-			go func() {
+			// pass as an arg so that we don't race between close and re-assign
+			go func(stopCh chan struct{}) {
 				defer GinkgoRecover()
-				Expect(informerCache.Start(stop)).To(Succeed())
-			}()
+				Expect(informerCache.Start(stopCh)).To(Succeed())
+			}(stop)
 			Expect(informerCache.WaitForCacheSync(stop)).To(BeTrue())
 		})
 
@@ -195,6 +196,19 @@ func CacheTest(createCacheFunc func(config *rest.Config, opts cache.Options) (ca
 					Expect(out.Items).Should(HaveLen(2))
 					for _, actual := range out.Items {
 						Expect(actual.Labels["test-label"]).To(Equal("test-pod-2"))
+					}
+				})
+
+				It("should be able to list objects with GVK populated", func() {
+					By("listing pods")
+					out := &kcorev1.PodList{}
+					Expect(informerCache.List(context.Background(), out)).To(Succeed())
+
+					By("verifying that the returned pods have GVK populated")
+					Expect(out.Items).NotTo(BeEmpty())
+					Expect(out.Items).Should(SatisfyAny(HaveLen(3), HaveLen(4)))
+					for _, p := range out.Items {
+						Expect(p.GroupVersionKind()).To(Equal(kcorev1.SchemeGroupVersion.WithKind("Pod")))
 					}
 				})
 
@@ -401,7 +415,7 @@ func CacheTest(createCacheFunc func(config *rest.Config, opts cache.Options) (ca
 						Kind:    "Pod",
 					})
 					uKnownPod2 := &unstructured.Unstructured{}
-					kscheme.Scheme.Convert(knownPod2, uKnownPod2, nil)
+					Expect(kscheme.Scheme.Convert(knownPod2, uKnownPod2, nil)).To(Succeed())
 
 					podKey := client.ObjectKey{Name: "test-pod-2", Namespace: testNamespaceTwo}
 					Expect(informerCache.Get(context.Background(), podKey, out)).To(Succeed())
@@ -546,8 +560,7 @@ func CacheTest(createCacheFunc func(config *rest.Config, opts cache.Options) (ca
 					By("listing Pods with restartPolicyOnFailure")
 					listObj := &kcorev1.PodList{}
 					Expect(informer.List(context.Background(), listObj,
-						client.MatchingField("spec.restartPolicy", "OnFailure"))).To(Succeed())
-
+						client.MatchingFields{"spec.restartPolicy": "OnFailure"})).To(Succeed())
 					By("verifying that the returned pods have correct restart policy")
 					Expect(listObj.Items).NotTo(BeEmpty())
 					Expect(listObj.Items).Should(HaveLen(1))
@@ -641,7 +654,7 @@ func CacheTest(createCacheFunc func(config *rest.Config, opts cache.Options) (ca
 						Kind:    "PodList",
 					})
 					err = informer.List(context.Background(), listObj,
-						client.MatchingField("spec.restartPolicy", "OnFailure"))
+						client.MatchingFields{"spec.restartPolicy": "OnFailure"})
 					Expect(err).To(Succeed())
 
 					By("verifying that the returned pods have correct restart policy")

@@ -23,12 +23,13 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/appscode/jsonpatch"
+	"gomodules.xyz/jsonpatch/v2"
 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	machinerytypes "k8s.io/apimachinery/pkg/types"
 
+	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/inject"
 )
 
@@ -45,6 +46,7 @@ var _ = Describe("Admission Webhooks", func() {
 		}
 		webhook := &Webhook{
 			Handler: handler,
+			log:     logf.RuntimeLog.WithName("webhook"),
 		}
 
 		return webhook
@@ -94,6 +96,7 @@ var _ = Describe("Admission Webhooks", func() {
 					},
 				}
 			}),
+			log: logf.RuntimeLog.WithName("webhook"),
 		}
 
 		By("invoking the webhook")
@@ -110,9 +113,10 @@ var _ = Describe("Admission Webhooks", func() {
 			Handler: HandlerFunc(func(ctx context.Context, req Request) Response {
 				return Patched("", jsonpatch.Operation{Operation: "add", Path: "/a", Value: 2}, jsonpatch.Operation{Operation: "replace", Path: "/b", Value: 4})
 			}),
+			log: logf.RuntimeLog.WithName("webhook"),
 		}
 
-		By("invoking the webhoook")
+		By("invoking the webhook")
 		resp := webhook.Handle(context.Background(), Request{})
 
 		By("checking that a JSON patch is populated on the response")
@@ -135,6 +139,7 @@ var _ = Describe("Admission Webhooks", func() {
 			handler := &fakeHandler{}
 			webhook := &Webhook{
 				Handler: handler,
+				log:     logf.RuntimeLog.WithName("webhook"),
 			}
 			Expect(setFields(webhook)).To(Succeed())
 			Expect(inject.InjectorInto(setFields, webhook)).To(BeTrue())
@@ -154,6 +159,7 @@ var _ = Describe("Admission Webhooks", func() {
 			handler := &fakeHandler{}
 			webhook := &Webhook{
 				Handler: handler,
+				log:     logf.RuntimeLog.WithName("webhook"),
 			}
 			Expect(setFields(webhook)).To(Succeed())
 			Expect(inject.InjectorInto(setFields, webhook)).To(BeTrue())

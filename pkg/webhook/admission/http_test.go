@@ -19,6 +19,7 @@ package admission
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/runtime/inject"
 
 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
+	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 )
 
 var _ = Describe("Admission Webhooks", func() {
@@ -87,11 +89,39 @@ var _ = Describe("Admission Webhooks", func() {
 			}
 			webhook := &Webhook{
 				Handler: &fakeHandler{},
+				log:     logf.RuntimeLog.WithName("webhook"),
 			}
 
 			expected := []byte(`{"response":{"uid":"","allowed":true,"status":{"metadata":{},"code":200}}}
 `)
 			webhook.ServeHTTP(respRecorder, req)
+			Expect(respRecorder.Body.Bytes()).To(Equal(expected))
+		})
+
+		It("should present the Context from the HTTP request, if any", func() {
+			req := &http.Request{
+				Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body:   nopCloser{Reader: bytes.NewBufferString(`{"request":{}}`)},
+			}
+			type ctxkey int
+			const key ctxkey = 1
+			const value = "from-ctx"
+			webhook := &Webhook{
+				Handler: &fakeHandler{
+					fn: func(ctx context.Context, req Request) Response {
+						<-ctx.Done()
+						return Allowed(ctx.Value(key).(string))
+					},
+				},
+				log: logf.RuntimeLog.WithName("webhook"),
+			}
+
+			expected := []byte(fmt.Sprintf(`{"response":{"uid":"","allowed":true,"status":{"metadata":{},"reason":%q,"code":200}}}
+`, value))
+
+			ctx, cancel := context.WithCancel(context.WithValue(context.Background(), key, value))
+			cancel()
+			webhook.ServeHTTP(respRecorder, req.WithContext(ctx))
 			Expect(respRecorder.Body.Bytes()).To(Equal(expected))
 		})
 	})

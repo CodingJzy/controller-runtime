@@ -115,6 +115,52 @@ var _ = Describe("Controllerutil", func() {
 				BlockOwnerDeletion: &t,
 			}))
 		})
+
+		It("should return an error if it's setting a cross-namespace owner reference", func() {
+			rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "namespace1"}}
+			dep := &extensionsv1beta1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "namespace2", UID: "foo-uid"}}
+
+			err := controllerutil.SetControllerReference(dep, rs, scheme.Scheme)
+
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("should return an error if it's owner is namespaced resource but dependant is cluster-scoped resource", func() {
+			pv := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "foo"}}
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "default", UID: "foo-uid"}}
+
+			err := controllerutil.SetControllerReference(pod, pv, scheme.Scheme)
+
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("should not return any error if the existing owner has a different version", func() {
+			f := false
+			t := true
+			rsOwners := []metav1.OwnerReference{
+				{
+					Name:               "foo",
+					Kind:               "Deployment",
+					APIVersion:         "extensions/v1alpha1",
+					UID:                "foo-uid",
+					Controller:         &f,
+					BlockOwnerDeletion: &t,
+				},
+			}
+			rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "default", OwnerReferences: rsOwners}}
+			dep := &extensionsv1beta1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "default", UID: "foo-uid"}}
+
+			Expect(controllerutil.SetControllerReference(dep, rs, scheme.Scheme)).NotTo(HaveOccurred())
+			Expect(rs.OwnerReferences).To(ConsistOf(metav1.OwnerReference{
+				Name: "foo",
+				Kind: "Deployment",
+				// APIVersion is the new owner's one
+				APIVersion:         "extensions/v1beta1",
+				UID:                "foo-uid",
+				Controller:         &t,
+				BlockOwnerDeletion: &t,
+			}))
+		})
 	})
 
 	Describe("CreateOrUpdate", func() {
@@ -212,9 +258,9 @@ var _ = Describe("Controllerutil", func() {
 			Expect(op).To(BeEquivalentTo(controllerutil.OperationResultNone))
 		})
 
-		It("errors when MutateFn changes objct name on creation", func() {
+		It("errors when MutateFn changes object name on creation", func() {
 			op, err := controllerutil.CreateOrUpdate(context.TODO(), c, deploy, func() error {
-				specr()
+				Expect(specr()).To(Succeed())
 				return deploymentRenamer(deploy)()
 			})
 
@@ -265,9 +311,62 @@ var _ = Describe("Controllerutil", func() {
 			Expect(err).To(HaveOccurred())
 		})
 	})
+
+	Describe("Finalizers", func() {
+		var obj runtime.Object = &errRuntimeObj{}
+		var deploy *appsv1.Deployment
+
+		Describe("AddFinalizerWithError", func() {
+			It("should return an error if object can't provide accessor", func() {
+				Expect(controllerutil.AddFinalizerWithError(obj, testFinalizer)).To(HaveOccurred())
+			})
+		})
+
+		Describe("RemoveFinalizerWithError", func() {
+			It("should return an error if object can't provide accessor", func() {
+				Expect(controllerutil.RemoveFinalizerWithError(obj, testFinalizer)).To(HaveOccurred())
+			})
+		})
+
+		Describe("AddFinalizer", func() {
+			deploy = &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Finalizers: []string{},
+				},
+			}
+
+			It("should add the finalizer when not present", func() {
+				controllerutil.AddFinalizer(deploy, testFinalizer)
+				Expect(deploy.ObjectMeta.GetFinalizers()).To(Equal([]string{testFinalizer}))
+			})
+
+			It("should not add the finalizer when already present", func() {
+				controllerutil.AddFinalizer(deploy, testFinalizer)
+				Expect(deploy.ObjectMeta.GetFinalizers()).To(Equal([]string{testFinalizer}))
+			})
+		})
+
+		Describe("RemoveFinalizer", func() {
+			It("should remove finalizer if present", func() {
+				controllerutil.RemoveFinalizer(deploy, testFinalizer)
+				Expect(deploy.ObjectMeta.GetFinalizers()).To(Equal([]string{}))
+			})
+		})
+	})
 })
 
+const testFinalizer = "foo.bar.baz"
+
+var _ runtime.Object = &errRuntimeObj{}
 var _ metav1.Object = &errMetaObj{}
+
+type errRuntimeObj struct {
+	runtime.TypeMeta
+}
+
+func (o *errRuntimeObj) DeepCopyObject() runtime.Object {
+	return &errRuntimeObj{}
+}
 
 type errMetaObj struct {
 	metav1.ObjectMeta
