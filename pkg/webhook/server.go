@@ -110,6 +110,9 @@ func (s *Server) Register(path string, hook http.Handler) {
 		panic(fmt.Errorf("can't register duplicate path: %v", path))
 	}
 	// TODO(directxman12): call setfields if we've already started the server
+	if err := s.setFields(hook); err != nil {
+		log.Error(err, "failed to register webhook", "path", path)
+	}
 	s.webhooks[path] = hook
 	s.WebhookMux.Handle(path, instrumentedHook(path, hook))
 	log.Info("registering webhook", "path", path)
