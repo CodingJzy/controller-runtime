@@ -113,6 +113,10 @@ func (s *Server) Register(path string, hook http.Handler) {
 	if err := s.setFields(hook); err != nil {
 		log.Error(err, "failed to register webhook", "path", path)
 	}
+	baseHookLog := log.WithName("webhooks")
+	if _, err := inject.LoggerInto(baseHookLog.WithValues("webhook", path), hook); err != nil {
+		log.Error(err, "failed to inject logger", "path", path)
+	}
 	s.webhooks[path] = hook
 	s.WebhookMux.Handle(path, instrumentedHook(path, hook))
 	log.Info("registering webhook", "path", path)
